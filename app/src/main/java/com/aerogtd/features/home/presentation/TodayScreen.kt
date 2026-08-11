@@ -58,15 +58,15 @@ fun TodayScreen(
     var isClarifyReadOnly by remember { mutableStateOf(false) }
 
     val actionTasks = remember(tasks, waitingList) {
-        tasks.filter { !it.isInbox && !it.isSomeday && it.completedAt == null && waitingList.none { w -> w.taskId == it.id && w.resolvedAt == null } }
+        tasks.filter { it.projectId == null && !it.isInbox && !it.isSomeday && it.completedAt == null && waitingList.none { w -> w.taskId == it.id && w.resolvedAt == null } }
     }
 
     val doneTasks = remember(tasks) {
-        tasks.filter { it.completedAt != null }
+        tasks.filter { it.projectId == null && it.completedAt != null }
     }
 
     val recommended = remember(tasks, waitingList) {
-        val nonDelegatedTasks = tasks.filter { waitingList.none { w -> w.taskId == it.id && w.resolvedAt == null } }
+        val nonDelegatedTasks = tasks.filter { it.projectId == null && waitingList.none { w -> w.taskId == it.id && w.resolvedAt == null } }
         NextActionEngine.getRecommendedTask(nonDelegatedTasks, null, null, null)
     }
 
@@ -122,9 +122,9 @@ fun TodayScreen(
                     )
                     StatPill(
                         modifier = Modifier.weight(1f),
-                        value = "${tasks.count { it.isInbox && it.completedAt == null }}",
-                        label = "Inbox",
-                        onClick = { onTabChange(Tab.INBOX) }
+                        value = "${tasks.count { it.projectId == null && it.isInbox && it.completedAt == null }}",
+                        label = "Tasks",
+                        onClick = { onTabChange(Tab.TASKS) }
                     )
                 }
             }
@@ -182,7 +182,7 @@ fun WeeklyReviewSheet(onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var step by remember { mutableIntStateOf(0) }
     val steps = listOf(
-        Triple("Clear Inbox", "Process every item in your inbox using the Clarify wizard.", Icons.Default.Inbox),
+        Triple("Clear Tasks", "Process every item in your tasks list using the Clarify wizard.", Icons.Default.Inbox),
         Triple("Check Projects", "Every active project must have at least 1 Next Action.", Icons.Default.FolderOpen),
         Triple("Review Delegations", "Follow up on waiting items. Chase overdue deliverables.", Icons.Default.Schedule),
         Triple("Someday", "Activate ideas from Someday that are now ready.", Icons.Default.WatchLater),

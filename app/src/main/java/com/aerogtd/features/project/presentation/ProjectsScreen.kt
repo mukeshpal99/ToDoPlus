@@ -207,7 +207,7 @@ fun ProjectDetailScreen(
 
     val newItems = remember(tasks) { tasks.filter { it.isInbox && it.completedAt == null } }
     val reviewedItems = remember(tasks) { tasks.filter { !it.isInbox && it.completedAt == null } }
-    val completedItems = remember(tasks) { tasks.filter { it.completedAt != null } }
+    val completedItems = remember(tasks) { tasks.filter { it.completedAt != null }.sortedByDescending { it.completedAt } }
 
     val isProjectCompleted = project.status == ProjectStatus.COMPLETED
 
@@ -550,15 +550,15 @@ fun ProjectDetailScreen(
 
         SmallFloatingActionButton(
             onClick = { showCaptureSheet = true },
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             shape = CircleShape,
-            elevation = FloatingActionButtonDefaults.elevation(4.dp, 6.dp),
+            elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(bottom = 24.dp, end = 20.dp)
         ) {
-            Icon(Icons.Default.Add, contentDescription = "Add Task", modifier = Modifier.size(20.dp))
+            Icon(Icons.Default.Add, contentDescription = "Add Task", modifier = Modifier.size(18.dp))
         }
 
         if (showCaptureSheet) {

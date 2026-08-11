@@ -5,13 +5,19 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -23,26 +29,27 @@ import androidx.compose.ui.unit.dp
 import com.aerogtd.core.database.*
 import com.aerogtd.features.home.presentation.TodayScreen
 import com.aerogtd.features.home.presentation.WeeklyReviewSheet
-import com.aerogtd.features.inbox.presentation.InboxScreen
+import com.aerogtd.features.tasks.presentation.TasksScreen
 import com.aerogtd.features.project.presentation.ProjectsScreen
 import com.aerogtd.features.project.presentation.ProjectDetailScreen
 import com.aerogtd.features.project.presentation.AddProjectSheet
 import com.aerogtd.features.waiting.presentation.WaitingScreen
+import com.aerogtd.features.lists.presentation.*
 import com.aerogtd.ui.components.QuickCaptureSheet
 import com.aerogtd.ui.theme.ToDoPlusTheme
 import java.util.*
 
 class MainActivity : ComponentActivity() {
-    private lateinit var dbHelper: DatabaseHelper
+    private lateinit var appDatabase: AppDatabase
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        dbHelper = DatabaseHelper.getInstance(this)
+        appDatabase = AppDatabase.getDatabase(this)
         setContent {
             ToDoPlusTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     MainScreen(
-                        dbHelper = dbHelper,
+                        appDatabase = appDatabase,
                         showToast = { msg -> Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
                     )
                 }
@@ -54,17 +61,18 @@ class MainActivity : ComponentActivity() {
 // ─── NAV TABS ────────────────────────────────────────────────────────────────
 enum class Tab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     TODAY("Home", Icons.Outlined.Home, Icons.Filled.Home),
-    INBOX("Inbox", Icons.Outlined.Inbox, Icons.Filled.Inbox),
+    TASKS("Tasks", Icons.Outlined.Inbox, Icons.Filled.Inbox),
     PROJECTS("Projects", Icons.Outlined.FolderOpen, Icons.Filled.Folder),
-    WAITING("Delegated", Icons.Outlined.Schedule, Icons.Filled.Schedule)
+    WAITING("Delegated", Icons.Outlined.Schedule, Icons.Filled.Schedule),
+    LISTS("Lists", Icons.AutoMirrored.Outlined.FormatListBulleted, Icons.AutoMirrored.Filled.FormatListBulleted)
 }
 
 // ─── MAIN SCREEN ─────────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
+fun MainScreen(appDatabase: AppDatabase, showToast: (String) -> Unit) {
     var activeTab by remember { mutableStateOf(Tab.TODAY) }
-    var inboxSubTab by remember { mutableStateOf(0) }
+    var tasksSubTab by remember { mutableStateOf(0) }
     val tabHistory = remember { ArrayDeque<Tab>() }
     var activeProjectDetail by remember { mutableStateOf<Project?>(null) }
     var tasks by remember { mutableStateOf(emptyList<Task>()) }
@@ -73,22 +81,25 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
     var waitingItems by remember { mutableStateOf(emptyList<WaitingFor>()) }
     var showAddSheet by remember { mutableStateOf(false) }
     var showAddProjectSheet by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var showSearchBar by remember { mutableStateOf(false) }
     var showWeeklyReview by remember { mutableStateOf(false) }
+    var activeListDetail by remember { mutableStateOf<CustomList?>(null) }
+    var lists by remember { mutableStateOf(emptyList<CustomList>()) }
+    var showAddListSheet by remember { mutableStateOf(false) }
 
     val reload = {
-        tasks = dbHelper.getTasks()
-        projects = dbHelper.getProjects()
-        contexts = dbHelper.getContexts()
-        waitingItems = dbHelper.getWaitingList()
+        tasks = appDatabase.taskDao().getTasks()
+        projects = appDatabase.projectDao().getProjects()
+        contexts = appDatabase.contextDao().getContexts()
+        waitingItems = appDatabase.waitingForDao().getWaitingList()
+        lists = appDatabase.customListDao().getCustomLists()
     }
 
     val onUpdateTask = { updatedTask: Task ->
-        dbHelper.updateTask(updatedTask)
+        appDatabase.taskDao().updateTask(updatedTask)
         reload()
     }
-
-    var showSearchBar by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
 
     val filteredTasks = remember(tasks, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -96,26 +107,41 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
         } else {
             tasks.filter {
                 it.title.contains(searchQuery, ignoreCase = true) ||
-                (it.notes ?: "").contains(searchQuery, ignoreCase = true)
+                        (it.notes != null && it.notes.contains(searchQuery, ignoreCase = true))
             }
         }
     }
 
-    val filteredProjects = remember(projects, tasks, searchQuery) {
+    val filteredProjects = remember(projects, searchQuery) {
         if (searchQuery.isBlank()) {
             projects
         } else {
-            projects.filter { project ->
-                project.title.contains(searchQuery, ignoreCase = true) ||
-                (project.goal ?: "").contains(searchQuery, ignoreCase = true) ||
-                tasks.any { it.projectId == project.id && (it.title.contains(searchQuery, ignoreCase = true) || (it.notes ?: "").contains(searchQuery, ignoreCase = true)) }
+            projects.filter {
+                it.title.contains(searchQuery, ignoreCase = true) ||
+                        (it.goal != null && it.goal.contains(searchQuery, ignoreCase = true))
+            }
+        }
+    }
+
+    val filteredLists = remember(lists, searchQuery) {
+        if (searchQuery.isBlank()) {
+            lists
+        } else {
+            lists.filter {
+                it.name.contains(searchQuery, ignoreCase = true)
             }
         }
     }
 
     LaunchedEffect(Unit) { reload() }
 
-    val inboxCount = remember(tasks) { tasks.count { it.isInbox && it.completedAt == null } }
+    LaunchedEffect(showSearchBar) {
+        if (!showSearchBar) {
+            searchQuery = ""
+        }
+    }
+
+    val tasksCount = remember(tasks) { tasks.count { it.projectId == null && it.isInbox && it.completedAt == null } }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -137,85 +163,119 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
                         },
                         icon = {
                             BadgedBox(badge = {
-                                if (tab == Tab.INBOX && inboxCount > 0) {
+                                if (tab == Tab.TASKS && tasksCount > 0) {
                                     Badge(containerColor = MaterialTheme.colorScheme.primary) {
-                                        Text("$inboxCount", style = MaterialTheme.typography.labelSmall)
+                                        Text("$tasksCount", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                             }) {
                                 Icon(
                                     imageVector = if (selected) tab.selectedIcon else tab.icon,
                                     contentDescription = tab.label,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         },
-                        label = { Text(tab.label, style = MaterialTheme.typography.labelSmall, maxLines = 1) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                        )
+                        label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) }
                     )
                 }
             }
         },
         floatingActionButton = {
-            if (activeTab == Tab.TODAY || activeTab == Tab.INBOX || activeTab == Tab.PROJECTS || activeTab == Tab.WAITING) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    SmallFloatingActionButton(
-                        onClick = {
-                            showSearchBar = !showSearchBar
-                            if (!showSearchBar) searchQuery = ""
-                        },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        shape = CircleShape,
-                        elevation = FloatingActionButtonDefaults.elevation(4.dp, 6.dp)
+            val isProjectDetailOpen = activeTab == Tab.PROJECTS && activeProjectDetail != null
+            val isListDetailOpen = activeTab == Tab.LISTS && activeListDetail != null
+            if (!isProjectDetailOpen && !isListDetailOpen) {
+                if (activeTab == Tab.TODAY || activeTab == Tab.TASKS || activeTab == Tab.PROJECTS || activeTab == Tab.WAITING || activeTab == Tab.LISTS) {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            imageVector = if (showSearchBar) Icons.Default.Close else Icons.Default.Search,
-                            contentDescription = "Search",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    if (activeTab != Tab.WAITING) {
+                        // Search FAB on all screens
                         SmallFloatingActionButton(
-                            onClick = {
-                                if (activeTab == Tab.PROJECTS) showAddProjectSheet = true
-                                else showAddSheet = true
-                            },
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            onClick = { showSearchBar = !showSearchBar },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                             shape = CircleShape,
-                            elevation = FloatingActionButtonDefaults.elevation(4.dp, 6.dp)
+                            elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp)
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "Add", modifier = Modifier.size(20.dp))
+                            Icon(
+                                imageVector = if (showSearchBar) Icons.Default.Close else Icons.Default.Search,
+                                contentDescription = "Toggle Search",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // Primary Add FAB depending on the screen
+                        when (activeTab) {
+                            Tab.TODAY, Tab.TASKS -> {
+                                SmallFloatingActionButton(
+                                    onClick = { showAddSheet = true },
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    shape = CircleShape,
+                                    elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Quick Add Task", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            Tab.PROJECTS -> {
+                                SmallFloatingActionButton(
+                                    onClick = { showAddProjectSheet = true },
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    shape = CircleShape,
+                                    elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Add Project", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            Tab.LISTS -> {
+                                SmallFloatingActionButton(
+                                    onClick = { showAddListSheet = true },
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    shape = CircleShape,
+                                    elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Add List", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            else -> {
+                                // WAITING tab does not have an Add FAB, only the Search FAB is shown
+                            }
                         }
                     }
                 }
             }
-        },
-        floatingActionButtonPosition = FabPosition.End
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
             if (showSearchBar) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search tasks...") },
-                    leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp)) },
+                    placeholder = { Text("Search tasks, projects, lists...", color = MaterialTheme.colorScheme.onSurface.copy(0.4f)) },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = MaterialTheme.colorScheme.onSurface.copy(0.5f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
                     trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp))
+                        IconButton(onClick = {
+                            if (searchQuery.isNotEmpty()) {
+                                searchQuery = ""
+                            } else {
+                                showSearchBar = false
                             }
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close Search", modifier = Modifier.size(18.dp))
                         }
                     },
                     singleLine = true,
@@ -246,9 +306,9 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
                             onToggleComplete = { id, isComplete ->
                                 tasks.find { it.id == id }?.let {
                                     val now = if (isComplete) System.currentTimeMillis() else null
-                                    dbHelper.updateTask(it.copy(completedAt = now))
-                                    dbHelper.getWaitingList().find { w -> w.taskId == id }?.let { w ->
-                                        dbHelper.updateWaiting(w.copy(resolvedAt = now))
+                                    appDatabase.taskDao().updateTask(it.copy(completedAt = now))
+                                    appDatabase.waitingForDao().getWaitingList().find { w -> w.taskId == id }?.let { w ->
+                                        appDatabase.waitingForDao().updateWaiting(w.copy(resolvedAt = now))
                                     }
                                 }
                                 reload()
@@ -257,28 +317,28 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
                             onTabChange = { activeTab = it },
                             onReviewClick = { showWeeklyReview = true },
                             onAddContext = { name ->
-                                dbHelper.insertContext(Context("c-${UUID.randomUUID()}", name, "tag", "#3A6FDB"))
+                                appDatabase.contextDao().insertContext(Context("c-${UUID.randomUUID()}", name, "tag", "#3A6FDB"))
                                 reload()
                             },
                             onProcessTask = { task, priority, energy, duration, dueDate, cId ->
-                                dbHelper.updateTask(task.copy(
+                                appDatabase.taskDao().updateTask(task.copy(
                                     isInbox = false, isSomeday = task.isSomeday, priority = priority, energy = energy,
                                     durationMinutes = duration, dueDate = dueDate,
                                     completedAt = null,
                                     contextIds = if (cId != null) listOf(cId) else emptyList()
                                 ))
                                 waitingItems.find { it.taskId == task.id }?.let { w ->
-                                    dbHelper.updateWaiting(w.copy(resolvedAt = null))
+                                    appDatabase.waitingForDao().updateWaiting(w.copy(resolvedAt = null))
                                 }
                                 reload()
                             },
                             onDelegateTask = { task, person, priority, dueDate, cId ->
-                                dbHelper.updateTask(task.copy(
+                                appDatabase.taskDao().updateTask(task.copy(
                                     isInbox = false, isSomeday = false, priority = priority,
                                     dueDate = dueDate,
                                     contextIds = if (cId != null) listOf(cId) else emptyList()
                                 ))
-                                dbHelper.insertWaiting(WaitingFor(
+                                appDatabase.waitingForDao().insertWaiting(WaitingFor(
                                     id = "w-${System.currentTimeMillis()}", taskId = task.id,
                                     person = person, dateDelegated = System.currentTimeMillis(),
                                     reminderDate = dueDate,
@@ -286,57 +346,57 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
                                 )); reload()
                             },
                             onSomedayTask = { task ->
-                                dbHelper.updateTask(task.copy(isInbox = false, isSomeday = true, priority = TaskPriority.LOW, dueDate = null, durationMinutes = 0))
+                                appDatabase.taskDao().updateTask(task.copy(isInbox = false, isSomeday = true, priority = TaskPriority.LOW, dueDate = null, durationMinutes = 0))
                                 reload()
                             },
                             onDeleteTask = { id ->
-                                dbHelper.deleteTask(id); reload()
+                                appDatabase.taskDao().deleteTask(id); reload()
                             },
                             onDoneClick = {
-                                inboxSubTab = 2
-                                activeTab = Tab.INBOX
+                                tasksSubTab = 2
+                                activeTab = Tab.TASKS
                             },
                             onUpdateTask = onUpdateTask
                         )
 
-                        Tab.INBOX -> InboxScreen(
+                        Tab.TASKS -> TasksScreen(
                             tasks = filteredTasks, projects = filteredProjects, contexts = contexts,
                             waitingList = waitingItems,
-                            initialSubTab = inboxSubTab,
-                            onSubTabChange = { inboxSubTab = it },
+                            initialSubTab = tasksSubTab,
+                            onSubTabChange = { tasksSubTab = it },
                             onToggleComplete = { id, isComplete ->
                                 tasks.find { it.id == id }?.let {
                                     val now = if (isComplete) System.currentTimeMillis() else null
-                                    dbHelper.updateTask(it.copy(completedAt = now))
-                                    dbHelper.getWaitingList().find { w -> w.taskId == id }?.let { w ->
-                                        dbHelper.updateWaiting(w.copy(resolvedAt = now))
+                                    appDatabase.taskDao().updateTask(it.copy(completedAt = now))
+                                    appDatabase.waitingForDao().getWaitingList().find { w -> w.taskId == id }?.let { w ->
+                                        appDatabase.waitingForDao().updateWaiting(w.copy(resolvedAt = now))
                                     }
                                 }
                                 reload()
                             },
                             onAddContext = { name ->
-                                dbHelper.insertContext(Context("c-${UUID.randomUUID()}", name, "tag", "#3A6FDB"))
+                                appDatabase.contextDao().insertContext(Context("c-${UUID.randomUUID()}", name, "tag", "#3A6FDB"))
                                 reload()
                             },
                             onProcess = { task, priority, energy, duration, dueDate, cId ->
-                                dbHelper.updateTask(task.copy(
+                                appDatabase.taskDao().updateTask(task.copy(
                                     isInbox = false, isSomeday = task.isSomeday, priority = priority, energy = energy,
                                     durationMinutes = duration, dueDate = dueDate,
                                     completedAt = null,
                                     contextIds = if (cId != null) listOf(cId) else emptyList()
                                 ))
-                                dbHelper.getWaitingList().find { it.taskId == task.id }?.let { w ->
-                                    dbHelper.updateWaiting(w.copy(resolvedAt = null))
+                                appDatabase.waitingForDao().getWaitingList().find { it.taskId == task.id }?.let { w ->
+                                    appDatabase.waitingForDao().updateWaiting(w.copy(resolvedAt = null))
                                 }
                                 reload(); showToast(if (task.isSomeday) "Saved to Someday" else "Moved to Actions")
                             },
                             onDelegate = { task, person, priority, dueDate, cId ->
-                                dbHelper.updateTask(task.copy(
+                                appDatabase.taskDao().updateTask(task.copy(
                                     isInbox = false, isSomeday = false, priority = priority,
                                     dueDate = dueDate,
                                     contextIds = if (cId != null) listOf(cId) else emptyList()
                                 ))
-                                dbHelper.insertWaiting(WaitingFor(
+                                appDatabase.waitingForDao().insertWaiting(WaitingFor(
                                     id = "w-${System.currentTimeMillis()}", taskId = task.id,
                                     person = person, dateDelegated = System.currentTimeMillis(),
                                     reminderDate = dueDate,
@@ -344,22 +404,113 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
                                 )); reload(); showToast("Delegated to $person")
                             },
                             onSomeday = { task ->
-                                dbHelper.updateTask(task.copy(isInbox = false, isSomeday = true, priority = TaskPriority.LOW, dueDate = null, durationMinutes = 0))
+                                appDatabase.taskDao().updateTask(task.copy(isInbox = false, isSomeday = true, priority = TaskPriority.LOW, dueDate = null, durationMinutes = 0))
                                 reload(); showToast("Moved to Someday")
                             },
                             onTrash = { task ->
-                                dbHelper.deleteTask(task.id); reload(); showToast("Trashed")
+                                appDatabase.taskDao().deleteTask(task.id); reload(); showToast("Trashed")
                             },
                             onUpdateTask = onUpdateTask
                         )
 
-                        Tab.PROJECTS -> ProjectsScreen(
-                            projects = filteredProjects,
-                            tasks = filteredTasks,
-                            onProjectClick = { project ->
-                                activeProjectDetail = project
+                        Tab.PROJECTS -> {
+                            val project = activeProjectDetail
+                            if (project != null) {
+                                ProjectDetailScreen(
+                                    project = project,
+                                    tasks = filteredTasks.filter { it.projectId == project.id },
+                                    contexts = contexts,
+                                    waitingList = waitingItems,
+                                    onBack = { activeProjectDetail = null },
+                                    onAddTask = { title, contextId ->
+                                        appDatabase.taskDao().insertTask(Task(
+                                            id = "t-${System.currentTimeMillis()}", projectId = project.id,
+                                            title = title, notes = null, priority = TaskPriority.MEDIUM,
+                                            energy = TaskEnergy.MEDIUM, durationMinutes = 30,
+                                            dueDate = null, startDate = null, completedAt = null,
+                                            isInbox = true, isSomeday = false, recurrenceRule = null,
+                                            createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis(),
+                                            contextIds = if (contextId != null) listOf(contextId) else emptyList()
+                                        )); reload()
+                                    },
+                                    onToggleComplete = { id, isComplete ->
+                                        tasks.find { it.id == id }?.let {
+                                            val now = if (isComplete) System.currentTimeMillis() else null
+                                            appDatabase.taskDao().updateTask(it.copy(completedAt = now))
+                                            appDatabase.waitingForDao().getWaitingList().find { w -> w.taskId == id }?.let { w ->
+                                                appDatabase.waitingForDao().updateWaiting(w.copy(resolvedAt = now))
+                                            }
+                                        }
+                                        reload()
+                                    },
+                                    onAddContext = { name ->
+                                        appDatabase.contextDao().insertContext(Context("c-${UUID.randomUUID()}", name, "tag", "#3A6FDB"))
+                                        reload()
+                                    },
+                                    onProcessTask = { task, priority, energy, duration, dueDate, cId ->
+                                        appDatabase.taskDao().updateTask(task.copy(
+                                            isInbox = false, isSomeday = task.isSomeday, priority = priority, energy = energy,
+                                            durationMinutes = duration, dueDate = dueDate,
+                                            completedAt = null,
+                                            contextIds = if (cId != null) listOf(cId) else emptyList()
+                                        ))
+                                        appDatabase.waitingForDao().getWaitingList().find { it.taskId == task.id }?.let { w ->
+                                            appDatabase.waitingForDao().updateWaiting(w.copy(resolvedAt = null))
+                                        }
+                                        reload()
+                                    },
+                                    onDelegateTask = { task, person, priority, dueDate, cId ->
+                                        appDatabase.taskDao().updateTask(task.copy(
+                                            isInbox = false, isSomeday = false, priority = priority,
+                                            dueDate = dueDate,
+                                            contextIds = if (cId != null) listOf(cId) else emptyList()
+                                        ))
+                                        appDatabase.waitingForDao().insertWaiting(WaitingFor(
+                                            id = "w-${System.currentTimeMillis()}", taskId = task.id,
+                                            person = person, dateDelegated = System.currentTimeMillis(),
+                                            reminderDate = dueDate,
+                                            expectedResponse = null, resolvedAt = null
+                                        )); reload()
+                                    },
+                                    onSomedayTask = { task ->
+                                        appDatabase.taskDao().updateTask(task.copy(isInbox = false, isSomeday = true, priority = TaskPriority.LOW, dueDate = null, durationMinutes = 0))
+                                        reload()
+                                    },
+                                    onDeleteTask = { id ->
+                                        appDatabase.taskDao().deleteTask(id); reload()
+                                    },
+                                    onRenameProject = { newName ->
+                                        appDatabase.projectDao().updateProject(project.copy(title = newName))
+                                        activeProjectDetail = appDatabase.projectDao().getProjects().find { it.id == project.id }
+                                        reload()
+                                    },
+                                    onDeleteProject = {
+                                        appDatabase.projectDao().deleteProject(project.id)
+                                        tasks.filter { it.projectId == project.id }.forEach {
+                                            appDatabase.taskDao().deleteTask(it.id)
+                                        }
+                                        activeProjectDetail = null
+                                        reload()
+                                    },
+                                    onUpdateTask = onUpdateTask,
+                                    onCompleteProject = {
+                                        appDatabase.projectDao().updateProject(project.copy(status = ProjectStatus.COMPLETED))
+                                        activeProjectDetail = appDatabase.projectDao().getProjects().find { it.id == project.id }
+                                        reload()
+                                        showToast("Project completed ✓")
+                                    }
+                                )
+                            } else {
+                                ProjectsScreen(
+                                    projects = filteredProjects,
+                                    tasks = filteredTasks,
+                                    onProjectClick = { project ->
+                                        activeProjectDetail = project
+                                        showSearchBar = false
+                                    }
+                                )
                             }
-                        )
+                        }
 
                         Tab.WAITING -> WaitingScreen(
                             waitingList = waitingItems,
@@ -369,35 +520,35 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
                             onResolve = { id, resolved ->
                                 waitingItems.find { it.id == id }?.let { w ->
                                     val now = if (resolved) System.currentTimeMillis() else null
-                                    dbHelper.updateWaiting(w.copy(resolvedAt = now))
+                                    appDatabase.waitingForDao().updateWaiting(w.copy(resolvedAt = now))
                                     tasks.find { it.id == w.taskId }?.let { t ->
-                                        dbHelper.updateTask(t.copy(completedAt = now))
+                                        appDatabase.taskDao().updateTask(t.copy(completedAt = now))
                                     }
                                 }; reload(); showToast(if (resolved) "Received ✓" else "Delegation reopened")
                             },
                             onAddContext = { name ->
-                                dbHelper.insertContext(Context("c-${UUID.randomUUID()}", name, "tag", "#3A6FDB"))
+                                appDatabase.contextDao().insertContext(Context("c-${UUID.randomUUID()}", name, "tag", "#3A6FDB"))
                                 reload()
                             },
                             onProcessTask = { task, priority, energy, duration, dueDate, cId ->
-                                dbHelper.updateTask(task.copy(
+                                appDatabase.taskDao().updateTask(task.copy(
                                     isInbox = false, isSomeday = task.isSomeday, priority = priority, energy = energy,
                                     durationMinutes = duration, dueDate = dueDate,
                                     completedAt = null,
                                     contextIds = if (cId != null) listOf(cId) else emptyList()
                                 ))
                                 waitingItems.find { it.taskId == task.id }?.let { w ->
-                                    dbHelper.updateWaiting(w.copy(resolvedAt = null))
+                                    appDatabase.waitingForDao().updateWaiting(w.copy(resolvedAt = null))
                                 }
                                 reload()
                             },
                             onDelegateTask = { task, person, priority, dueDate, cId ->
-                                dbHelper.updateTask(task.copy(
+                                appDatabase.taskDao().updateTask(task.copy(
                                     isInbox = false, isSomeday = false, priority = priority,
                                     dueDate = dueDate,
                                     contextIds = if (cId != null) listOf(cId) else emptyList()
                                 ))
-                                dbHelper.insertWaiting(WaitingFor(
+                                appDatabase.waitingForDao().insertWaiting(WaitingFor(
                                     id = "w-${System.currentTimeMillis()}", taskId = task.id,
                                     person = person, dateDelegated = System.currentTimeMillis(),
                                     reminderDate = dueDate,
@@ -405,14 +556,50 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
                                 )); reload()
                             },
                             onSomedayTask = { task ->
-                                dbHelper.updateTask(task.copy(isInbox = false, isSomeday = true, priority = TaskPriority.LOW, dueDate = null, durationMinutes = 0))
+                                appDatabase.taskDao().updateTask(task.copy(isInbox = false, isSomeday = true, priority = TaskPriority.LOW, dueDate = null, durationMinutes = 0))
                                 reload()
                             },
                             onDeleteTask = { id ->
-                                dbHelper.deleteTask(id); reload()
+                                appDatabase.taskDao().deleteTask(id); reload()
                             },
                             onUpdateTask = onUpdateTask
                         )
+
+                        Tab.LISTS -> {
+                            val list = activeListDetail
+                            if (list != null) {
+                                CustomListDetailScreen(
+                                    list = list,
+                                    appDatabase = appDatabase,
+                                    onBack = { activeListDetail = null },
+                                    onRenameList = { newName ->
+                                        appDatabase.customListDao().renameCustomList(list.id, newName)
+                                        activeListDetail = appDatabase.customListDao().getCustomLists().find { it.id == list.id }
+                                        reload()
+                                    },
+                                    onDeleteList = {
+                                        appDatabase.customListDao().deleteCustomList(list.id)
+                                        activeListDetail = null
+                                        reload()
+                                    },
+                                    showToast = showToast
+                                )
+                            } else {
+                                ListsScreen(
+                                    lists = filteredLists,
+                                    appDatabase = appDatabase,
+                                    onListClick = {
+                                        activeListDetail = it
+                                        showSearchBar = false
+                                    },
+                                    onDeleteList = { listId ->
+                                        appDatabase.customListDao().deleteCustomList(listId)
+                                        reload()
+                                        showToast("List deleted")
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -424,21 +611,21 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
         QuickCaptureSheet(
             onDismiss = { showAddSheet = false },
             onCapture = { title ->
-                dbHelper.insertTask(Task(
+                appDatabase.taskDao().insertTask(Task(
                     id = "t-${System.currentTimeMillis()}", projectId = null, title = title,
                     notes = null, priority = TaskPriority.LOW, energy = TaskEnergy.LOW,
                     durationMinutes = 15, dueDate = null, startDate = null, completedAt = null,
                     isInbox = true, isSomeday = false, recurrenceRule = null,
                     createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()
                 ))
-                reload(); showAddSheet = false; showToast("Captured to Inbox ✓")
+                reload(); showAddSheet = false; showToast("Captured to Tasks ✓")
             }
         )
     }
 
     if (showAddProjectSheet) {
         AddProjectSheet(onDismiss = { showAddProjectSheet = false }, onSave = { title ->
-            dbHelper.insertProject(Project(
+            appDatabase.projectDao().insertProject(Project(
                 id = "p-${System.currentTimeMillis()}", title = title,
                 goal = null, outcome = null, deadline = null,
                 status = ProjectStatus.ACTIVE,
@@ -454,103 +641,30 @@ fun MainScreen(dbHelper: DatabaseHelper, showToast: (String) -> Unit) {
         WeeklyReviewSheet(onDismiss = { showWeeklyReview = false })
     }
 
-    val currentProject = activeProjectDetail
-    // Back handler: project detail -> active tab -> previous tab -> exit
-    BackHandler(enabled = currentProject != null || tabHistory.isNotEmpty()) {
-        when {
-            currentProject != null -> activeProjectDetail = null
-            tabHistory.isNotEmpty() -> activeTab = tabHistory.removeLast()
-        }
+    if (showAddListSheet) {
+        AddListSheet(onDismiss = { showAddListSheet = false }, onSave = { name ->
+            appDatabase.customListDao().insertCustomList(CustomList(
+                id = "cl-${UUID.randomUUID()}",
+                name = name,
+                createdAt = System.currentTimeMillis()
+            ))
+            reload()
+            showToast("List created ✓")
+            showAddListSheet = false
+            activeListDetail = appDatabase.customListDao().getCustomLists().firstOrNull { it.name == name }
+        })
     }
-    if (currentProject != null) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
-        ) {
-            ProjectDetailScreen(
-                project = currentProject,
-                tasks = filteredTasks.filter { it.projectId == currentProject.id },
-                contexts = contexts,
-                waitingList = waitingItems,
-                onBack = { activeProjectDetail = null },
-                onAddTask = { title, contextId ->
-                    dbHelper.insertTask(Task(
-                        id = "t-${System.currentTimeMillis()}", projectId = currentProject.id,
-                        title = title, notes = null, priority = TaskPriority.MEDIUM,
-                        energy = TaskEnergy.MEDIUM, durationMinutes = 30,
-                        dueDate = null, startDate = null, completedAt = null,
-                        isInbox = true, isSomeday = false, recurrenceRule = null,
-                        createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis(),
-                        contextIds = if (contextId != null) listOf(contextId) else emptyList()
-                    )); reload()
-                },
-                onToggleComplete = { id, isComplete ->
-                    tasks.find { it.id == id }?.let {
-                        val now = if (isComplete) System.currentTimeMillis() else null
-                        dbHelper.updateTask(it.copy(completedAt = now))
-                        dbHelper.getWaitingList().find { w -> w.taskId == id }?.let { w ->
-                            dbHelper.updateWaiting(w.copy(resolvedAt = now))
-                        }
-                    }
-                    reload()
-                },
-                onAddContext = { name ->
-                    dbHelper.insertContext(Context("c-${UUID.randomUUID()}", name, "tag", "#3A6FDB"))
-                    reload()
-                },
-                onProcessTask = { task, priority, energy, duration, dueDate, cId ->
-                    dbHelper.updateTask(task.copy(
-                        isInbox = false, isSomeday = task.isSomeday, priority = priority, energy = energy,
-                        durationMinutes = duration, dueDate = dueDate,
-                        completedAt = null,
-                        contextIds = if (cId != null) listOf(cId) else emptyList()
-                    ))
-                    dbHelper.getWaitingList().find { it.taskId == task.id }?.let { w ->
-                        dbHelper.updateWaiting(w.copy(resolvedAt = null))
-                    }
-                    reload()
-                },
-                onDelegateTask = { task, person, priority, dueDate, cId ->
-                    dbHelper.updateTask(task.copy(
-                        isInbox = false, isSomeday = false, priority = priority,
-                        dueDate = dueDate,
-                        contextIds = if (cId != null) listOf(cId) else emptyList()
-                    ))
-                    dbHelper.insertWaiting(WaitingFor(
-                        id = "w-${System.currentTimeMillis()}", taskId = task.id,
-                        person = person, dateDelegated = System.currentTimeMillis(),
-                        reminderDate = dueDate,
-                        expectedResponse = null, resolvedAt = null
-                    )); reload()
-                },
-                onSomedayTask = { task ->
-                    dbHelper.updateTask(task.copy(isInbox = false, isSomeday = true, priority = TaskPriority.LOW, dueDate = null, durationMinutes = 0))
-                    reload()
-                },
-                onDeleteTask = { id ->
-                    dbHelper.deleteTask(id); reload()
-                },
-                onRenameProject = { newName ->
-                    dbHelper.updateProject(currentProject.copy(title = newName))
-                    activeProjectDetail = dbHelper.getProjects().find { it.id == currentProject.id }
-                    reload()
-                },
-                onDeleteProject = {
-                    dbHelper.deleteProject(currentProject.id)
-                    tasks.filter { it.projectId == currentProject.id }.forEach {
-                        dbHelper.deleteTask(it.id)
-                    }
-                    activeProjectDetail = null
-                    reload()
-                },
-                onUpdateTask = onUpdateTask,
-                onCompleteProject = {
-                    dbHelper.updateProject(currentProject.copy(status = ProjectStatus.COMPLETED))
-                    activeProjectDetail = dbHelper.getProjects().find { it.id == currentProject.id }
-                    reload()
-                    showToast("Project completed ✓")
-                }
-            )
+
+    val currentProject = activeProjectDetail
+    val currentList = activeListDetail
+    val isProjectActive = currentProject != null && activeTab == Tab.PROJECTS
+    val isListActive = currentList != null && activeTab == Tab.LISTS
+    // Back handler: project/list detail -> active tab -> previous tab -> exit
+    BackHandler(enabled = isProjectActive || isListActive || tabHistory.isNotEmpty()) {
+        when {
+            isProjectActive -> activeProjectDetail = null
+            isListActive -> activeListDetail = null
+            tabHistory.isNotEmpty() -> activeTab = tabHistory.removeLast()
         }
     }
 }

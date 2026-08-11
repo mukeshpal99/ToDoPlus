@@ -1,4 +1,4 @@
-package com.aerogtd.features.inbox.presentation
+package com.aerogtd.features.tasks.presentation
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun InboxScreen(
+fun TasksScreen(
     tasks: List<Task>,
     projects: List<Project>,
     contexts: List<Context>,
@@ -60,10 +60,11 @@ fun InboxScreen(
     }
 
     val newItems = remember(tasks, selectedFilterCtx) { 
-        tasks.filter { it.isInbox && it.completedAt == null && (selectedFilterCtx == null || it.contextIds.contains(selectedFilterCtx)) } 
+        tasks.filter { it.projectId == null && it.isInbox && it.completedAt == null && (selectedFilterCtx == null || it.contextIds.contains(selectedFilterCtx)) } 
     }
     val reviewedItems = remember(tasks, selectedFilterCtx, filterSomeday) { 
         tasks.filter { 
+            it.projectId == null && 
             !it.isInbox && 
             it.completedAt == null && 
             (!filterSomeday || it.isSomeday) && 
@@ -71,7 +72,7 @@ fun InboxScreen(
         } 
     }
     val completedItems = remember(tasks, selectedFilterCtx) { 
-        tasks.filter { it.completedAt != null && (selectedFilterCtx == null || it.contextIds.contains(selectedFilterCtx)) } 
+        tasks.filter { it.projectId == null && it.completedAt != null && (selectedFilterCtx == null || it.contextIds.contains(selectedFilterCtx)) } 
              .sortedByDescending { it.completedAt }
     }
 
@@ -82,7 +83,7 @@ fun InboxScreen(
     ) {
         // Header
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Inbox", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text("Tasks", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -203,7 +204,7 @@ fun InboxScreen(
                                 else -> Icons.Default.CheckCircle
                             },
                             message = when (page) {
-                                0 -> "Your inbox is empty.\nTap + to capture thoughts."
+                                0 -> "Your task list is empty.\nTap + to capture thoughts."
                                 1 -> "No reviewed tasks yet.\nClarify new items to organize them."
                                 else -> "No completed tasks yet."
                             }
