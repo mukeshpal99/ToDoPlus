@@ -335,7 +335,8 @@ fun CustomListDetailScreen(
         if (showCaptureSheet) {
             QuickCaptureSheet(
                 onDismiss = { showCaptureSheet = false },
-                onCapture = { title ->
+                showImageCapture = false,
+                onCapture = { title, _ ->
                     val newItem = CustomListItem(
                         id = "cli-${UUID.randomUUID()}",
                         listId = list.id,

@@ -183,6 +183,20 @@ fun TaskRow(task: Task, projects: List<Project>, contexts: List<Context>, waitin
                                 Text("$prefix${task.durationMinutes}m", style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurface.copy(0.4f))
                             }
+                            if (task.imagePath != null) {
+                                val prefix = if (projName != null || ctxName != null || delegation != null || task.durationMinutes > 0) "•  " else ""
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(prefix, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(0.4f))
+                                    Icon(
+                                        imageVector = Icons.Default.Attachment,
+                                        contentDescription = "Has image attachment",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(Modifier.width(2.dp))
+                                    Text("Image", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
                         }
                     }
                 }

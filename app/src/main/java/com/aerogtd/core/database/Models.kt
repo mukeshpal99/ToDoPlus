@@ -69,6 +69,7 @@ data class Task(
     @ColumnInfo(name = "recurrence_rule") val recurrenceRule: String?,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
+    @ColumnInfo(name = "image_path") val imagePath: String? = null,
     @Ignore val contextIds: List<String> = emptyList(),
     @Ignore val tagIds: List<String> = emptyList(),
     @Ignore val dependencyIds: List<String> = emptyList()
@@ -79,11 +80,11 @@ data class Task(
         priority: TaskPriority, energy: TaskEnergy, durationMinutes: Int,
         dueDate: Long?, startDate: Long?, completedAt: Long?,
         isInbox: Boolean, isSomeday: Boolean, recurrenceRule: String?,
-        createdAt: Long, updatedAt: Long
+        createdAt: Long, updatedAt: Long, imagePath: String?
     ) : this(
         id, projectId, title, notes, priority, energy, durationMinutes,
         dueDate, startDate, completedAt, isInbox, isSomeday, recurrenceRule,
-        createdAt, updatedAt, emptyList(), emptyList(), emptyList()
+        createdAt, updatedAt, imagePath, emptyList(), emptyList(), emptyList()
     )
 }
 

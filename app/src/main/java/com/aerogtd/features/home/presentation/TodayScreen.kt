@@ -168,8 +168,15 @@ fun TodayScreen(
                 onDelegate = { newTitle, person, pri, dueDate, cId -> onDelegateTask(task.copy(title = newTitle), person, pri, dueDate, cId); activeTask = null },
                 onSomeday = { newTitle, pri, dueDate -> onSomedayTask(task.copy(title = newTitle, priority = pri, dueDate = dueDate)); activeTask = null },
                 onTrash = { onDeleteTask(task.id); activeTask = null },
-                forceReadOnly = isClarifyReadOnly,
-                onUpdateTitle = { newTitle -> onUpdateTask(task.copy(title = newTitle)) },
+                onUpdateTitle = { newTitle ->
+                    val updated = task.copy(title = newTitle)
+                    activeTask = updated
+                    onUpdateTask(updated)
+                },
+                onUpdateTask = { updated ->
+                    activeTask = updated
+                    onUpdateTask(updated)
+                },
                 onActNow = { newTitle, pri, energy, dur, dueDate, cId -> onProcessTask(task.copy(title = newTitle, isSomeday = false), pri, energy, dur, dueDate, cId); activeTask = null }
             )
         }

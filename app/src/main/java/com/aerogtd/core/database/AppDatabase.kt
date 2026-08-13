@@ -160,7 +160,7 @@ interface CustomListItemDao {
         WaitingFor::class, CustomList::class, CustomListItem::class,
         TaskContextCrossRef::class, TaskTagCrossRef::class, TaskDependencyCrossRef::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -193,7 +193,6 @@ abstract class AppDatabase : RoomDatabase() {
                         db.execSQL("INSERT INTO contexts (id, name, icon, color_hex) VALUES ('c-3', 'Personal', 'user', '#BD10E0')")
                     }
                 })
-                .fallbackToDestructiveMigration()
                 .allowMainThreadQueries()
                 .build()
                 INSTANCE = instance

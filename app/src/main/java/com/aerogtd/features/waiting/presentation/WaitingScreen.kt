@@ -149,9 +149,16 @@ fun WaitingScreen(
                 onDelegate = { newTitle, person, pri, dueDate, cId -> onDelegateTask(task.copy(title = newTitle), person, pri, dueDate, cId); activeClarifyTask = null },
                 onSomeday = { newTitle, pri, dueDate -> onSomedayTask(task.copy(title = newTitle, priority = pri, dueDate = dueDate)); activeClarifyTask = null },
                 onTrash = { onDeleteTask(task.id); activeClarifyTask = null },
-                forceReadOnly = isClarifyReadOnly,
-                onUpdateTitle = { newTitle -> onUpdateTask(task.copy(title = newTitle)) },
-                onActNow = { newTitle, pri, energy, dur, dueDate, cId -> onProcessTask(task.copy(title = newTitle, isSomeday = false), pri, energy, dur, dueDate, cId); activeClarifyTask = null }
+                onUpdateTitle = { newTitle ->
+                    val updated = task.copy(title = newTitle)
+                    activeClarifyTask = updated
+                    onUpdateTask(updated)
+                },
+                onActNow = { newTitle, pri, energy, dur, dueDate, cId -> onProcessTask(task.copy(title = newTitle, isSomeday = false), pri, energy, dur, dueDate, cId); activeClarifyTask = null },
+                onUpdateTask = { updated ->
+                    activeClarifyTask = updated
+                    onUpdateTask(updated)
+                }
             )
         }
     }

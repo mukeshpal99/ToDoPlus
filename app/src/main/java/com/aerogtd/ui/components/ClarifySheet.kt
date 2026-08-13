@@ -26,6 +26,18 @@ import androidx.compose.ui.unit.sp
 import com.aerogtd.core.database.*
 import java.text.SimpleDateFormat
 import java.util.*
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.layout.ContentScale
+import java.io.File
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,9 +54,18 @@ fun ClarifySheet(
     onTrash: () -> Unit,
     forceReadOnly: Boolean = false,
     onUpdateTitle: ((String) -> Unit)? = null,
-    onActNow: ((String, TaskPriority, TaskEnergy, Int, Long?, String?) -> Unit)? = null
+    onActNow: ((String, TaskPriority, TaskEnergy, Int, Long?, String?) -> Unit)? = null,
+    onUpdateTask: ((Task) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val tempFile = remember { File(context.cacheDir, "temp_capture_detail.jpg") }
+    val tempUri = remember(tempFile) {
+        FileProvider.getUriForFile(
+            context,
+            "com.aerogtd.fileprovider",
+            tempFile
+        )
+    }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // 0=Route, 1=NextAction detail, 2=Delegate detail
     var step by remember { mutableIntStateOf(if (task.isInbox) 0 else 1) }
@@ -60,6 +81,7 @@ fun ClarifySheet(
     var selectedDueDate by remember { mutableStateOf<Long?>(task.dueDate) }
     var delegatePerson by remember { mutableStateOf("") }
     var titleText by remember { mutableStateOf(task.title) }
+    var showFullScreenImage by remember { mutableStateOf(false) }
 
     val delegateNames = remember(waitingList) {
         waitingList.map { it.person }.distinct().sorted()
@@ -251,6 +273,84 @@ fun ClarifySheet(
                                         color = Color(0xFFFF8F00))
                                 }
                             }
+                        }
+                    }
+
+                    task.imagePath?.let { path ->
+                        Spacer(Modifier.height(8.dp))
+                        val bitmapPainter = remember(path) {
+                            try {
+                                val file = File(path)
+                                if (file.exists()) {
+                                    val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                                    bitmap?.asImageBitmap()?.let { BitmapPainter(it) }
+                                } else null
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
+                        if (bitmapPainter != null) {
+                            Box(modifier = Modifier.fillMaxWidth().height(150.dp)) {
+                                Image(
+                                    painter = bitmapPainter,
+                                    contentDescription = "Attached Image",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { showFullScreenImage = true },
+                                    contentScale = ContentScale.Crop
+                                )
+                                if (!isReadOnly) {
+                                    IconButton(
+                                        onClick = {
+                                            val updatedTask = task.copy(imagePath = null)
+                                            onUpdateTask?.invoke(updatedTask)
+                                        },
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(8.dp)
+                                            .size(32.dp)
+                                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Remove Image",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (task.imagePath == null && !isReadOnly) {
+                        Spacer(Modifier.height(8.dp))
+                        val cameraLauncher = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.TakePicture(),
+                            onResult = { success ->
+                                if (success && tempFile.exists()) {
+                                    try {
+                                        val finalFile = File(context.filesDir, "img_${System.currentTimeMillis()}.jpg")
+                                        tempFile.copyTo(finalFile, overwrite = true)
+                                        val updatedTask = task.copy(imagePath = finalFile.absolutePath)
+                                        onUpdateTask?.invoke(updatedTask)
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                }
+                            }
+                        )
+                        OutlinedButton(
+                            onClick = { cameraLauncher.launch(tempUri) },
+                            modifier = Modifier.fillMaxWidth().height(42.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(0.4f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Capture & Attach Photo", style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
@@ -825,6 +925,60 @@ fun ClarifySheet(
             shape = RoundedCornerShape(16.dp),
             containerColor = MaterialTheme.colorScheme.surface
         )
+    }
+
+    if (showFullScreenImage && task.imagePath != null) {
+        Dialog(
+            onDismissRequest = { showFullScreenImage = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.95f))
+                    .clickable { showFullScreenImage = false }
+            ) {
+                val bitmapPainter = remember(task.imagePath) {
+                    try {
+                        val file = File(task.imagePath)
+                        if (file.exists()) {
+                            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                            bitmap?.asImageBitmap()?.let { BitmapPainter(it) }
+                        } else null
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+                if (bitmapPainter != null) {
+                    Image(
+                        painter = bitmapPainter,
+                        contentDescription = "Full Screen Image",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp)
+                            .align(Alignment.Center),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+                
+                IconButton(
+                    onClick = { showFullScreenImage = false },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 40.dp, end = 20.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Full Screen",
+                        tint = Color.White
+                    )
+                }
+            }
+        }
     }
 }
 

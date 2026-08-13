@@ -422,7 +422,7 @@ fun MainScreen(appDatabase: AppDatabase, showToast: (String) -> Unit) {
                                     contexts = contexts,
                                     waitingList = waitingItems,
                                     onBack = { activeProjectDetail = null },
-                                    onAddTask = { title, contextId ->
+                                    onAddTask = { title, contextId, imgPath ->
                                         appDatabase.taskDao().insertTask(Task(
                                             id = "t-${System.currentTimeMillis()}", projectId = project.id,
                                             title = title, notes = null, priority = TaskPriority.MEDIUM,
@@ -430,6 +430,7 @@ fun MainScreen(appDatabase: AppDatabase, showToast: (String) -> Unit) {
                                             dueDate = null, startDate = null, completedAt = null,
                                             isInbox = true, isSomeday = false, recurrenceRule = null,
                                             createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis(),
+                                            imagePath = imgPath,
                                             contextIds = if (contextId != null) listOf(contextId) else emptyList()
                                         )); reload()
                                     },
@@ -610,13 +611,14 @@ fun MainScreen(appDatabase: AppDatabase, showToast: (String) -> Unit) {
     if (showAddSheet) {
         QuickCaptureSheet(
             onDismiss = { showAddSheet = false },
-            onCapture = { title ->
+            onCapture = { title, imgPath ->
                 appDatabase.taskDao().insertTask(Task(
                     id = "t-${System.currentTimeMillis()}", projectId = null, title = title,
                     notes = null, priority = TaskPriority.LOW, energy = TaskEnergy.LOW,
                     durationMinutes = 15, dueDate = null, startDate = null, completedAt = null,
                     isInbox = true, isSomeday = false, recurrenceRule = null,
-                    createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()
+                    createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis(),
+                    imagePath = imgPath
                 ))
                 reload(); showAddSheet = false; showToast("Captured to Tasks ✓")
             }

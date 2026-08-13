@@ -186,7 +186,7 @@ fun ProjectDetailScreen(
     contexts: List<Context>,
     waitingList: List<WaitingFor>,
     onBack: () -> Unit,
-    onAddTask: (String, String?) -> Unit,
+    onAddTask: (String, String?, String?) -> Unit,
     onToggleComplete: (String, Boolean) -> Unit,
     onAddContext: (String) -> Unit,
     onProcessTask: (Task, TaskPriority, TaskEnergy, Int, Long?, String?) -> Unit,
@@ -564,8 +564,8 @@ fun ProjectDetailScreen(
         if (showCaptureSheet) {
             QuickCaptureSheet(
                 onDismiss = { showCaptureSheet = false },
-                onCapture = { title ->
-                    onAddTask(title, null)
+                onCapture = { title, imgPath ->
+                    onAddTask(title, null, imgPath)
                     showCaptureSheet = false
                 }
             )
@@ -584,8 +584,15 @@ fun ProjectDetailScreen(
                 onDelegate = { newTitle, person, pri, dueDate, cId -> onDelegateTask(task.copy(title = newTitle), person, pri, dueDate, cId); activeClarifyTask = null },
                 onSomeday = { newTitle, pri, dueDate -> onSomedayTask(task.copy(title = newTitle, priority = pri, dueDate = dueDate)); activeClarifyTask = null },
                 onTrash = { onDeleteTask(task.id); activeClarifyTask = null },
-                forceReadOnly = isClarifyReadOnly,
-                onUpdateTitle = { newTitle -> onUpdateTask(task.copy(title = newTitle)) },
+                onUpdateTitle = { newTitle ->
+                    val updated = task.copy(title = newTitle)
+                    activeClarifyTask = updated
+                    onUpdateTask(updated)
+                },
+                onUpdateTask = { updated ->
+                    activeClarifyTask = updated
+                    onUpdateTask(updated)
+                },
                 onActNow = { newTitle, pri, energy, dur, dueDate, cId -> onProcessTask(task.copy(title = newTitle, isSomeday = false), pri, energy, dur, dueDate, cId); activeClarifyTask = null }
             )
         }
